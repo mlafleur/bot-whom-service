@@ -57,7 +57,6 @@ namespace Microsoft.Bot.Sample.GraphBot
             {
                 loggerFactory.AddDebug(Extensions.Logging.LogLevel.Trace);
                 app.UseDeveloperExceptionPage();
-                app.UseRuntimeInfoPage();
             }
             else
             {
@@ -79,11 +78,11 @@ namespace Microsoft.Bot.Sample.GraphBot
             IClientKeys keys = new ClientKeys(this.configuration);
 
             app.UseCookieAuthentication(new CookieAuthenticationOptions()
-            { 
+            {
                 AutomaticAuthenticate = true,
                 AutomaticChallenge = true,
 
-                CookieSecure = CookieSecureOption.SameAsRequest,
+                CookieSecure = AspNetCore.Http.CookieSecurePolicy.SameAsRequest,
             });
 
             const string Authority = "https://login.microsoftonline.com/common/";
@@ -97,7 +96,7 @@ namespace Microsoft.Bot.Sample.GraphBot
                 ClientSecret = keys.ClientSecret,
                 Authority = Authority,
 
-                ResponseType = OpenIdConnectResponseTypes.CodeIdToken,
+                ResponseType = OpenIdConnectResponseType.CodeIdToken,
                 SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme,
                 TokenValidationParameters = new TokenValidationParameters
                 {
@@ -112,7 +111,7 @@ namespace Microsoft.Bot.Sample.GraphBot
                         // given the authorization code
                         var authorizationCode = context.ProtocolMessage.Code;
                         var request = context.HttpContext.Request;
-                        var redirectUri = new Uri(UriHelper.Encode(request.Scheme, request.Host, request.PathBase, request.Path));
+                        var redirectUri = new Uri(UriHelper.BuildAbsolute(request.Scheme, request.Host, request.PathBase, request.Path));
 
                         // get and verify the access token and refresh token
                         var credential = new ClientCredential(keys.ClientID, keys.ClientSecret);
