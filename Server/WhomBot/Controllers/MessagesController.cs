@@ -1,69 +1,69 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Web.Http;
-using System.Web.Http.Description;
+
+using Autofac;
+using Microsoft.Bot.Sample.GraphBot.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Bot.Connector;
-using Newtonsoft.Json;
+using Microsoft.Bot.Builder.Dialogs.Internals;
+using Microsoft.Bot.Builder.Internals.Fibers;
+using System.Net.Http;
+using System.Diagnostics;
 
-namespace WhomBot
+namespace Microsoft.Bot.Sample.GraphBot.Controllers
 {
-    [BotAuthentication]
-    public class MessagesController : ApiController
+    [Route("api/[controller]")]
+    //[BotAuthentication(Keys.Bot.ID, Keys.Bot.Secret)]
+    public class MessagesController : Controller
     {
-        /// <summary>
-        /// POST: api/Messages
-        /// Receive a message from a user and reply to it
-        /// </summary>
-        public async Task<HttpResponseMessage> Post([FromBody]Activity activity)
+        private readonly IClientKeys keys;
+        public MessagesController(IClientKeys keys)
         {
-            if (activity.Type == ActivityTypes.Message)
-            {
-                ConnectorClient connector = new ConnectorClient(new Uri(activity.ServiceUrl));
-                // calculate something for us to return
-                int length = (activity.Text ?? string.Empty).Length;
-
-                // return our reply to the user
-                Activity reply = activity.CreateReply($"You sent {activity.Text} which was {length} characters");
-                await connector.Conversations.ReplyToActivityAsync(reply);
-            }
-            else
-            {
-                HandleSystemMessage(activity);
-            }
-            var response = Request.CreateResponse(HttpStatusCode.OK);
-            return response;
+            SetField.NotNull(out this.keys, nameof(keys), keys);
         }
 
-        private Activity HandleSystemMessage(Activity message)
+        [HttpPost]
+        public virtual async Task<HttpResponseMessage> Post([FromBody] Activity toBot, CancellationToken token)
         {
-            if (message.Type == ActivityTypes.DeleteUserData)
+            if (toBot != null)
             {
-                // Implement user deletion here
-                // If we handle user deletion, return a real message
-            }
-            else if (message.Type == ActivityTypes.ConversationUpdate)
-            {
-                // Handle conversation state changes, like members being added and removed
-                // Use Activity.MembersAdded and Activity.MembersRemoved and Activity.Action for info
-                // Not available in all channels
-            }
-            else if (message.Type == ActivityTypes.ContactRelationUpdate)
-            {
-                // Handle add/remove from contact lists
-                // Activity.From + Activity.Action represent what happened
-            }
-            else if (message.Type == ActivityTypes.Typing)
-            {
-                // Handle knowing tha the user is typing
-            }
-            else if (message.Type == ActivityTypes.Ping)
-            {
-            }
+                // one of these will have an interface and process it
+                switch (toBot.GetActivityType())
+                {
+                    case ActivityTypes.Message:
+                        using (var scope = DialogModule.BeginLifetimeScope(Container.Instance, toBot))
+                        {
+                            // construct the authentication url
+                            var builder = new UriBuilder(this.Request.GetEncodedUrl());
+                            builder.Path = $"/api/account/";
+                            var uri = builder.Uri;
 
-            return null;
+                            // make the authentication url and the client keys available to root dialog if needed
+                            // somewhat hacky - would be better done by uniting Autofac and ASP.NET DI containers
+                            scope.Resolve<Uri>(TypedParameter.From(uri));
+                            scope.Resolve<IClientKeys>(TypedParameter.From(this.keys));
+
+                            // post the message to the bot
+                            var task = scope.Resolve<IPostToBot>();
+                            await task.PostAsync(toBot, token);
+
+                        }
+                        break;
+
+                    case ActivityTypes.ConversationUpdate:
+                    case ActivityTypes.ContactRelationUpdate:
+                    case ActivityTypes.Typing:
+                    case ActivityTypes.DeleteUserData:
+                    default:
+                        Trace.TraceError($"Unknown activity type ignored: {toBot.GetActivityType()}");
+                        break;
+                }
+            }
+            return new HttpResponseMessage(System.Net.HttpStatusCode.Accepted);
         }
     }
 }
